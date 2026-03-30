@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>My Cart | XNEON Technologies</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>body { background-color: #050505; color: #fff; }</style>
+</head>
+<body>
+    <div id="navbar"></div>
+
+    <div class="max-w-screen-xl mx-auto p-4 pt-8 pb-20">
+        <h1 class="text-3xl font-bold mb-6">Shopping Cart</h1>
+        
+        <div id="cart-items" class="space-y-4">
+            <div class="animate-pulse bg-gray-800 h-20 rounded-xl"></div>
+            <div class="animate-pulse bg-gray-800 h-20 rounded-xl"></div>
+        </div>
+
+        <div class="mt-8 border-t border-gray-800 pt-4">
+            <div class="flex justify-between text-xl font-bold mb-4">
+                <span>Total</span>
+                <span id="cart-total">₹0</span>
+            </div>
+            <button onclick="openCheckout()" class="w-full bg-red-600 text-white font-bold py-4 rounded-xl hover:bg-red-700 transition">CHECKOUT</button>
+        </div>
+    </div>
+
+    <div id="checkout-modal" class="fixed inset-0 bg-black/90 z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-[#111] p-6 rounded-xl border border-gray-800 w-full max-w-sm relative">
+            <button onclick="document.getElementById('checkout-modal').classList.add('hidden')" class="absolute top-2 right-4 text-gray-500 text-2xl">&times;</button>
+            <h2 class="text-xl font-bold mb-4">Checkout</h2>
+            
+            <textarea id="address" class="w-full bg-black border border-gray-700 p-3 rounded mb-3 text-white" placeholder="Full Address (Name, Street, City, ZIP)" rows="3"></textarea>
+            
+            <select id="payment-method" class="w-full bg-black border border-gray-700 p-3 rounded mb-4 text-white">
+                <option value="COD">Cash on Delivery</option>
+                <option value="UPI">UPI / Online</option>
+            </select>
+
+            <button onclick="placeOrder()" class="w-full bg-green-600 text-white font-bold py-3 rounded-xl hover:bg-green-700">CONFIRM ORDER</button>
+        </div>
+    </div>
+
+    <script type="module">
+        import { db, auth, loadNavbar, collection, doc, onSnapshot, deleteDoc, addDoc, formatINR, serverTimestamp } from './firebase-config.js';
+
+        loadNavbar();
+
+        const cartDiv = document.getElementById('cart-items');
+        const totalSpan = document.getElementById('cart-total');
+        let cartTotal = 0;
+        let cartData = [];
+
+        auth.onAuthStateChanged(user => {
+            if(user) {
+                onSnapshot(collection(db, "carts", user.uid, "items"), (snap) => {
+                    cartDiv.innerHTML = "";
+                    cartTotal = 0;
+                    cartData = [];
+
+                    if(snap.empty) {
+                        cartDiv.innerHTML = "<p class='text-gray-500'>Your cart is empty.</p>";
+                        totalSpan.innerText = formatINR(0);
+                        return;
+                    }
+
+                    snap.forEach(d => {
+                        const item = d.data();
+                        cartData.push(item);
+                        const itemTotal = item.price * item.qty;
+                        cartTotal += itemTotal;
+
+                        cartDiv.innerHTML += `
+                        <div class="flex items-center gap-4 bg-[#111] p-3 rounded-xl border border-gray-800">
+                            <img src="${item.image}" class="w-16 h-16 object-cover rounded">
+                            <div class="flex-1">
+                                <h3 class="font-bold truncate">${item.name}</h3>
+                                <p class="text-sm text-gray-400">${formatINR(item.price)} x ${item.qty}</p>
+                            </div>
+                            <button onclick="removeItem('${d.id}')" class="text-red-500 font-bold px-2">X</button>
+                        </div>`;
+                    });
+                    totalSpan.innerText = formatINR(cartTotal);
+                });
+            } else {
+                cartDiv.innerHTML = "<p class='text-gray-500'>Please login to view cart.</p>";
+            }
+        });
+
+        window.removeItem = async (id) => {
+            if(auth.currentUser) await deleteDoc(doc(db, "carts", auth.currentUser.uid, "items", id));
+        };
+
+        window.openCheckout = () => {
+            if(cartTotal > 0) document.getElementById('checkout-modal').classList.remove('hidden');
+            else alert("Cart is empty");
+        };
+
+        window.placeOrder = async () => {
+            const address = document.getElementById('address').value;
+            const method = document.getElementById('payment-method').value;
+            
+            if(!address) return alert("Enter address");
+
+            const user = auth.currentUser;
+            if(user) {
+                await addDoc(collection(db, "orders"), {
+                    userId: user.uid,
+                    items: cartData,
+                    total: cartTotal,
+                    address: address,
+                    paymentMethod: method,
+                    status: "Pending",
+                    timestamp: serverTimestamp()
+                });
+                
+                // Clear Cart
+                const snap = await onSnapshot(collection(db, "carts", user.uid, "items"), (s) => {
+                     s.forEach(d => deleteDoc(d.ref));
+                }); // Note: This is a simplified clear. In production use batch.
+                
+                alert("Order Placed!");
+                window.location.href = "orders.html";
+            }
+        };
+    </script>
+</body>
+</html>
